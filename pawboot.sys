@@ -38,7 +38,7 @@ scan_loop:
     cmp byte [di], 0xE5
     je next_entry
 
-    ; Check extension against list (BIN, SYS, KRN, OS, IMG, COM)
+    ; Check extension
     mov si, di
     add si, 8
     mov al, [si]
@@ -121,7 +121,6 @@ found_kernel:
     mov al, ' '
     call putchar
 
-    ; Print filename (8 chars)
     mov si, di
     mov cx, 8
 print_name:
@@ -143,12 +142,11 @@ name_done:
     call putchar
     call newline
 
-    ; Store entry info (16-bit addressing)
     mov al, [entry_count]
     mov ah, 0
     mov si, di
     push ax
-    add ax, ax          ; multiply by 2 for word index
+    add ax, ax
     mov bx, ax
     mov [kernel_entries + bx], si
     pop ax
@@ -177,10 +175,9 @@ have_kernels:
     cmp bl, [entry_count]
     jae start
 
-    ; Load selected kernel
     mov al, bl
     mov ah, 0
-    add ax, ax          ; multiply by 2 for word index
+    add ax, ax
     mov bx, ax
     mov si, [kernel_entries + bx]
     mov ax, [si + 26]
@@ -221,7 +218,6 @@ load_kernel:
     int 0x13
     jc error
 
-    ; Next cluster
     mov ax, [cluster]
     mov cx, ax
     shr ax, 1
@@ -244,10 +240,14 @@ even:
     xor bx, bx
 .same_seg:
 
-    cmp word [cluster], 0xFF8
-    jb load_kernel
+    mov ax, [cluster]
+    cmp ax, 0xFF8
+    jb load_kernel_continue
+    jmp done_loading
+load_kernel_continue:
+    jmp load_kernel
 
-    ; Switch to protected mode
+done_loading:
     cli
     lgdt [gdt_desc]
     mov eax, cr0
