@@ -25,6 +25,8 @@ start15:
     mov di, bx
     mov cx, 224
     mov si, filename
+
+search_loop:
     push di
     push cx
     mov cx, 11
