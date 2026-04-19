@@ -1,0 +1,53 @@
+name: Build PawBoot
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y nasm mtools dosfstools
+
+    - name: Assemble stage1
+      run: nasm -f bin stage1.asm -o stage1.bin
+
+    - name: Assemble stage15
+      run: nasm -f bin stage15.asm -o stage15.bin
+
+    - name: Assemble pawboot.sys
+      run: nasm -f bin pawboot.sys -o pawboot.bin
+
+    - name: Create floppy image
+      run: |
+        dd if=/dev/zero of=pawboot.img bs=512 count=2880
+        dd if=stage1.bin of=pawboot.img conv=notrunc bs=512 count=1 seek=0
+        dd if=stage15.bin of=pawboot.img conv=notrunc bs=512 count=8 seek=1
+        dd if=pawboot.bin of=pawboot.img conv=notrunc bs=512 count=16 seek=9
+
+    - name: Create FAT12 filesystem
+      run: |
+        mkfs.fat -F 12 -C pawboot.img 2880
+        dd if=stage1.bin of=pawboot.img conv=notrunc bs=512 count=1 seek=0
+        dd if=stage15.bin of=pawboot.img conv=notrunc bs=512 count=8 seek=1
+
+    - name: Copy pawboot.sys to image
+      run: |
+        mcopy -i pawboot.img pawboot.bin ::PAWBOOT.SYS
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: pawboot
+        path: pawboot.img
