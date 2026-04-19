@@ -6,6 +6,7 @@ start:
     mov ds, ax
     mov es, ax
 
+    ; Load root directory
     mov ax, 0x5000
     mov es, ax
     xor bx, bx
@@ -18,12 +19,14 @@ start:
     int 0x13
     jc error
 
+    ; Clear screen
     mov ax, 0x0003
     int 0x10
 
     mov si, header
     call print
 
+    ; Scan for kernel files
     mov di, 0x5000
     mov cx, 224
     mov byte [entry_count], 0
@@ -35,6 +38,7 @@ scan_loop:
     cmp byte [di], 0xE5
     je next_entry
 
+    ; Check extension against list (BIN, SYS, KRN, OS, IMG, COM)
     mov si, di
     add si, 8
     mov al, [si]
@@ -117,6 +121,7 @@ found_kernel:
     mov al, ' '
     call putchar
 
+    ; Print filename (8 chars)
     mov si, di
     mov cx, 8
 print_name:
@@ -138,10 +143,15 @@ name_done:
     call putchar
     call newline
 
+    ; Store entry info (16-bit addressing)
     mov al, [entry_count]
     mov ah, 0
     mov si, di
-    mov [kernel_entries + ax], si
+    push ax
+    add ax, ax          ; multiply by 2 for word index
+    mov bx, ax
+    mov [kernel_entries + bx], si
+    pop ax
     inc byte [entry_count]
 
     pop bx
@@ -167,11 +177,16 @@ have_kernels:
     cmp bl, [entry_count]
     jae start
 
-    movzx ax, bl
-    mov si, [kernel_entries + ax]
+    ; Load selected kernel
+    mov al, bl
+    mov ah, 0
+    add ax, ax          ; multiply by 2 for word index
+    mov bx, ax
+    mov si, [kernel_entries + bx]
     mov ax, [si + 26]
     mov [cluster], ax
 
+    ; Load FAT
     mov ax, 0x6000
     mov es, ax
     xor bx, bx
@@ -184,6 +199,7 @@ have_kernels:
     int 0x13
     jc error
 
+    ; Load kernel into 0x8000:0000
     mov ax, 0x8000
     mov es, ax
     xor bx, bx
@@ -205,6 +221,7 @@ load_kernel:
     int 0x13
     jc error
 
+    ; Next cluster
     mov ax, [cluster]
     mov cx, ax
     shr ax, 1
@@ -230,6 +247,7 @@ even:
     cmp word [cluster], 0xFF8
     jb load_kernel
 
+    ; Switch to protected mode
     cli
     lgdt [gdt_desc]
     mov eax, cr0
