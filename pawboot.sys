@@ -1,0 +1,319 @@
+[org 0x4000]
+bits 16
+
+start:
+    mov ax, 0x4000
+    mov ds, ax
+    mov es, ax
+
+    mov ax, 0x5000
+    mov es, ax
+    xor bx, bx
+    mov ah, 0x02
+    mov al, 14
+    mov ch, 0
+    mov cl, 19
+    mov dh, 0
+    mov dl, 0x80
+    int 0x13
+    jc error
+
+    mov ax, 0x0003
+    int 0x10
+
+    mov si, header
+    call print
+
+    mov di, 0x5000
+    mov cx, 224
+    mov byte [entry_count], 0
+    mov bx, 1
+
+scan_loop:
+    cmp byte [di], 0
+    je next_entry
+    cmp byte [di], 0xE5
+    je next_entry
+
+    mov si, di
+    add si, 8
+    mov al, [si]
+    cmp al, 'B'
+    je check_ext
+    cmp al, 'S'
+    je check_ext
+    cmp al, 'K'
+    je check_ext
+    cmp al, 'O'
+    je check_ext
+    cmp al, 'I'
+    je check_ext
+    cmp al, 'C'
+    je check_ext
+    jmp next_entry
+
+check_ext:
+    mov dx, [si]
+    cmp dl, 'B'
+    jne try_sys
+    cmp dh, 'I'
+    jne try_sys
+    mov al, [si+2]
+    cmp al, 'N'
+    jne try_sys
+    jmp found_kernel
+try_sys:
+    cmp dl, 'S'
+    jne try_krn
+    cmp dh, 'Y'
+    jne try_krn
+    mov al, [si+2]
+    cmp al, 'S'
+    jne try_krn
+    jmp found_kernel
+try_krn:
+    cmp dl, 'K'
+    jne try_os
+    cmp dh, 'R'
+    jne try_os
+    mov al, [si+2]
+    cmp al, 'N'
+    jne try_os
+    jmp found_kernel
+try_os:
+    cmp dl, 'O'
+    jne try_img
+    cmp dh, 'S'
+    jne try_img
+    mov al, [si+2]
+    cmp al, ' '
+    jne try_img
+    jmp found_kernel
+try_img:
+    cmp dl, 'I'
+    jne try_com
+    cmp dh, 'M'
+    jne try_com
+    mov al, [si+2]
+    cmp al, 'G'
+    jne try_com
+    jmp found_kernel
+try_com:
+    cmp dl, 'C'
+    jne next_entry
+    cmp dh, 'O'
+    jne next_entry
+    mov al, [si+2]
+    cmp al, 'M'
+    jne next_entry
+
+found_kernel:
+    push bx
+    mov al, bl
+    add al, '0'
+    call putchar
+    mov al, '.'
+    call putchar
+    mov al, ' '
+    call putchar
+
+    mov si, di
+    mov cx, 8
+print_name:
+    lodsb
+    cmp al, ' '
+    je name_done
+    call putchar
+    loop print_name
+name_done:
+    mov al, '.'
+    call putchar
+    mov si, di
+    add si, 8
+    mov al, [si]
+    call putchar
+    mov al, [si+1]
+    call putchar
+    mov al, [si+2]
+    call putchar
+    call newline
+
+    mov al, [entry_count]
+    mov ah, 0
+    mov si, di
+    mov [kernel_entries + ax], si
+    inc byte [entry_count]
+
+    pop bx
+    inc bx
+
+next_entry:
+    add di, 32
+    loop scan_loop
+
+    cmp byte [entry_count], 0
+    jne have_kernels
+    mov si, no_kernels_msg
+    call print
+    jmp hang
+
+have_kernels:
+    mov si, prompt_msg
+    call print
+    call getchar
+    sub al, '0'
+    mov bl, al
+    dec bl
+    cmp bl, [entry_count]
+    jae start
+
+    movzx ax, bl
+    mov si, [kernel_entries + ax]
+    mov ax, [si + 26]
+    mov [cluster], ax
+
+    mov ax, 0x6000
+    mov es, ax
+    xor bx, bx
+    mov ah, 0x02
+    mov al, 9
+    mov ch, 0
+    mov cl, 1
+    mov dh, 0
+    mov dl, 0x80
+    int 0x13
+    jc error
+
+    mov ax, 0x8000
+    mov es, ax
+    xor bx, bx
+
+load_kernel:
+    mov ax, [cluster]
+    sub ax, 2
+    mov cx, 1
+    mul cx
+    add ax, 33
+    mov [sector], ax
+
+    mov ah, 0x02
+    mov al, 1
+    mov ch, 0
+    mov cl, [sector]
+    mov dh, 0
+    mov dl, 0x80
+    int 0x13
+    jc error
+
+    mov ax, [cluster]
+    mov cx, ax
+    shr ax, 1
+    add ax, cx
+    mov si, ax
+    mov ax, [0x6000 + si]
+    test cx, 1
+    jz even
+    shr ax, 4
+even:
+    and ax, 0x0FFF
+    mov [cluster], ax
+
+    add bx, 512
+    cmp bx, 65536 - 512
+    jb .same_seg
+    mov ax, es
+    add ax, 0x1000
+    mov es, ax
+    xor bx, bx
+.same_seg:
+
+    cmp word [cluster], 0xFF8
+    jb load_kernel
+
+    cli
+    lgdt [gdt_desc]
+    mov eax, cr0
+    or eax, 1
+    mov cr0, eax
+    jmp 0x08:pmode
+
+error:
+    mov si, err_msg
+    call print
+hang:
+    cli
+    hlt
+
+print:
+    lodsb
+    or al, al
+    jz .done
+    call putchar
+    jmp print
+.done:
+    ret
+
+putchar:
+    pusha
+    mov ah, 0x0e
+    int 0x10
+    popa
+    ret
+
+newline:
+    pusha
+    mov al, 0x0d
+    call putchar
+    mov al, 0x0a
+    call putchar
+    popa
+    ret
+
+getchar:
+    mov ah, 0x00
+    int 0x16
+    ret
+
+bits 32
+pmode:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, 0x90000
+    jmp 0x08:0x80000
+
+header          db 'PawBoot - Kernel Selector', 0x0d, 0x0a, 0
+prompt_msg      db 0x0d, 0x0a, 'Select kernel: ', 0
+no_kernels_msg  db 'No bootable kernels found (BIN, SYS, KRN, OS, IMG, COM)', 0x0d, 0x0a, 0
+err_msg         db 'Error loading kernel', 0
+
+entry_count     db 0
+kernel_entries  dw 64 dup(0)
+cluster         dw 0
+sector          dw 0
+
+gdt_start:
+    dd 0, 0
+gdt_code:
+    dw 0xFFFF
+    dw 0
+    db 0
+    db 0x9A
+    db 0xCF
+    db 0
+gdt_data:
+    dw 0xFFFF
+    dw 0
+    db 0
+    db 0x92
+    db 0xCF
+    db 0
+gdt_end:
+gdt_desc:
+    dw gdt_end - gdt_start - 1
+    dd gdt_start
+
+times 8192-($-$$) db 0
